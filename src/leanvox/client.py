@@ -89,19 +89,25 @@ class Leanvox:
         *,
         model: str = "standard",
         voice: str = "",
+        voice_instructions: str = "",
         language: str = "en",
         format: str = "mp3",
         speed: float = 1.0,
         exaggeration: float = 0.5,
     ) -> GenerateResult:
-        """Generate speech from text."""
-        _validate_generate_params(text, model, speed, exaggeration)
+        """Generate speech from text.
+
+        For Max model, use voice_instructions instead of voice:
+            client.generate("Hello", model="max",
+                voice_instructions="A warm, confident female narrator")
+        """
+        _validate_generate_params(text, model, speed, exaggeration, voice_instructions=voice_instructions)
 
         # Auto-route to async if text exceeds threshold
         if len(text) > self._auto_async_threshold:
             job = self.generate_async(
-                text=text, model=model, voice=voice, language=language,
-                format=format, speed=speed, exaggeration=exaggeration,
+                text=text, model=model, voice=voice, voice_instructions=voice_instructions,
+                language=language, format=format, speed=speed, exaggeration=exaggeration,
             )
             # Poll until complete
             import time
@@ -119,7 +125,7 @@ class Leanvox:
                 _http_client=self._get_http().raw_client,
             )
 
-        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration)
+        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration, voice_instructions=voice_instructions)
         data = self._get_http().request("POST", "/v1/tts/generate", json=body)
         return GenerateResult(
             audio_url=data.get("audio_url", ""),
@@ -127,6 +133,8 @@ class Leanvox:
             voice=data.get("voice", voice),
             characters=data.get("characters", 0),
             cost_cents=data.get("cost_cents", 0),
+            generated_voice_id=data.get("generated_voice_id"),
+            suggestion=data.get("suggestion"),
             _http_client=self._get_http().raw_client,
         )
 
@@ -137,6 +145,7 @@ class Leanvox:
         *,
         model: str = "standard",
         voice: str = "",
+        voice_instructions: str = "",
         language: str = "en",
         speed: float = 1.0,
         exaggeration: float = 0.5,
@@ -149,8 +158,8 @@ class Leanvox:
                 f"Got format='{format}'. Use generate() for other formats.",
                 code="streaming_format_error", status_code=400,
             )
-        _validate_generate_params(text, model, speed, exaggeration)
-        body = _build_generate_body(text, model, voice, language, "mp3", speed, exaggeration)
+        _validate_generate_params(text, model, speed, exaggeration, voice_instructions=voice_instructions)
+        body = _build_generate_body(text, model, voice, language, "mp3", speed, exaggeration, voice_instructions=voice_instructions)
 
         with self._get_http().stream("POST", "/v1/tts/stream", json=body) as resp:
             resp.raise_for_status()
@@ -163,7 +172,14 @@ class Leanvox:
         model: str = "pro",
         gap_ms: int = 500,
     ) -> GenerateResult:
-        """Generate multi-speaker dialogue."""
+        """Generate multi-speaker dialogue.
+
+        For Max model, each line can include voice_instructions:
+            lines = [
+                {"text": "Hello!", "voice_instructions": "Warm female narrator"},
+                {"text": "Hi there!", "voice_instructions": "Deep male host"},
+            ]
+        """
         if len(lines) < 2:
             raise InvalidRequestError(
                 "Dialogue requires at least 2 lines",
@@ -186,6 +202,7 @@ class Leanvox:
         *,
         model: str = "standard",
         voice: str = "",
+        voice_instructions: str = "",
         language: str = "en",
         format: str = "mp3",
         speed: float = 1.0,
@@ -193,8 +210,8 @@ class Leanvox:
         webhook_url: str = "",
     ) -> Job:
         """Submit async generation job."""
-        _validate_generate_params(text, model, speed, exaggeration)
-        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration)
+        _validate_generate_params(text, model, speed, exaggeration, voice_instructions=voice_instructions)
+        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration, voice_instructions=voice_instructions)
         if webhook_url:
             body["webhook_url"] = webhook_url
         data = self._get_http().request("POST", "/v1/tts/generate-async", json=body)
@@ -267,14 +284,15 @@ class AsyncLeanvox:
         *,
         model: str = "standard",
         voice: str = "",
+        voice_instructions: str = "",
         language: str = "en",
         format: str = "mp3",
         speed: float = 1.0,
         exaggeration: float = 0.5,
     ) -> GenerateResult:
         """Generate speech from text (async)."""
-        _validate_generate_params(text, model, speed, exaggeration)
-        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration)
+        _validate_generate_params(text, model, speed, exaggeration, voice_instructions=voice_instructions)
+        body = _build_generate_body(text, model, voice, language, format, speed, exaggeration, voice_instructions=voice_instructions)
         data = await self._get_http().request("POST", "/v1/tts/generate", json=body)
         return GenerateResult(
             audio_url=data.get("audio_url", ""),
@@ -282,6 +300,8 @@ class AsyncLeanvox:
             voice=data.get("voice", voice),
             characters=data.get("characters", 0),
             cost_cents=data.get("cost_cents", 0),
+            generated_voice_id=data.get("generated_voice_id"),
+            suggestion=data.get("suggestion"),
         )
 
     async def dialogue(
@@ -353,7 +373,8 @@ class AsyncLeanvox:
 # --- Validation helpers ---
 
 def _validate_generate_params(
-    text: str, model: str, speed: float, exaggeration: float
+    text: str, model: str, speed: float, exaggeration: float,
+    *, voice_instructions: str = "",
 ) -> None:
     if not text:
         raise InvalidRequestError(
@@ -364,9 +385,25 @@ def _validate_generate_params(
             f"Text exceeds maximum of 10,000 characters (got {len(text)})",
             code="invalid_request", status_code=400,
         )
-    if model not in ("standard", "pro"):
+    if model not in ("standard", "pro", "max"):
         raise InvalidRequestError(
-            f"Model must be 'standard' or 'pro', got '{model}'",
+            f"Model must be 'standard', 'pro', or 'max', got '{model}'",
+            code="invalid_request", status_code=400,
+        )
+    if model == "max" and not voice_instructions:
+        raise InvalidRequestError(
+            "voice_instructions is required when model is 'max'. "
+            'Example: voice_instructions="A warm, confident female narrator"',
+            code="invalid_request", status_code=400,
+        )
+    if model == "max" and len(voice_instructions) > 300:
+        raise InvalidRequestError(
+            f"voice_instructions must be 300 characters or less (got {len(voice_instructions)})",
+            code="invalid_request", status_code=400,
+        )
+    if model != "max" and voice_instructions:
+        raise InvalidRequestError(
+            f"voice_instructions is only supported with model='max', not '{model}'",
             code="invalid_request", status_code=400,
         )
     if not (0.5 <= speed <= 2.0):
@@ -395,9 +432,13 @@ def _build_generate_body(
     format: str,
     speed: float,
     exaggeration: float,
+    *,
+    voice_instructions: str = "",
 ) -> dict:
     body: dict = {"text": text, "model": model, "language": language, "format": format, "speed": speed}
-    if voice:
+    if model == "max":
+        body["voice_instructions"] = voice_instructions
+    elif voice:
         body["voice"] = voice
     if model == "pro":
         body["exaggeration"] = exaggeration

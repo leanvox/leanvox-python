@@ -16,6 +16,8 @@ class GenerateResult:
     voice: str
     characters: int
     cost_cents: float
+    generated_voice_id: str | None = None
+    suggestion: str | None = None
     _http_client: Any = field(default=None, repr=False)
 
     def download(self) -> bytes:

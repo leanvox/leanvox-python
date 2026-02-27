@@ -33,6 +33,18 @@ with client.stream(text="Long narration...", voice="af_heart") as stream:
             f.write(chunk)
 ```
 
+## Max (Instruction-Based Voice)
+
+```python
+# Describe any voice in natural language
+result = client.generate(
+    text="Welcome to our podcast!",
+    model="max",
+    voice_instructions="A warm, confident female narrator with a slight British accent",
+)
+print(result.generated_voice_id)  # Reuse this ID for consistent voice
+```
+
 ## Dialogue
 
 ```python

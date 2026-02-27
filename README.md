@@ -39,8 +39,8 @@ with client.stream(text="Long narration...", voice="af_heart") as stream:
 result = client.dialogue(
     model="pro",
     lines=[
-        {"text": "Welcome to the show!", "voice": "emma", "language": "en"},
-        {"text": "Thanks for having me.", "voice": "james", "language": "en"},
+        {"text": "Welcome to the show!", "voice": "narrator_warm_male", "language": "en"},
+        {"text": "Thanks for having me.", "voice": "assistant_pro_female", "language": "en"},
     ],
     gap_ms=500,
 )

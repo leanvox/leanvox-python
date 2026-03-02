@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import os
 from typing import Any, BinaryIO, List, Optional, Union
 
 from .types import (
@@ -11,10 +13,134 @@ from .types import (
     FileExtractResult,
     Generation,
     GenerationList,
+    SpeakersData,
+    SummaryData,
+    TranscribeResult,
+    TranscribeUsage,
+    TranscriptData,
+    TranscriptSegment,
     Voice,
     VoiceDesign,
     VoiceList,
 )
+
+
+class AudioResource:
+    """Audio intelligence operations (transcription, diarization, summarization)."""
+
+    def __init__(self, http: Any) -> None:
+        self._http = http
+
+    def transcribe(
+        self,
+        file: Union[str, os.PathLike, BinaryIO, bytes],
+        *,
+        language: Optional[str] = None,
+        features: Optional[List[str]] = None,
+        num_speakers: Optional[int] = None,
+    ) -> TranscribeResult:
+        """Transcribe an audio file.
+
+        Args:
+            file: Path to audio file, file-like object, or raw bytes.
+            language: Language code (auto-detect if omitted).
+            features: List of features. Default: ["transcript", "diarization"].
+                      Add "summary" for AI-generated summary.
+            num_speakers: Hint for expected number of speakers.
+
+        Returns:
+            TranscribeResult with transcript, speakers, and optional summary.
+        """
+        # Build multipart files
+        fp: Optional[BinaryIO] = None
+        if isinstance(file, (str, os.PathLike)):
+            filename = os.path.basename(str(file))
+            fp = open(file, "rb")  # noqa: SIM115
+            upload_file: Any = (filename, fp, "application/octet-stream")
+        elif isinstance(file, bytes):
+            upload_file = ("audio.wav", file, "application/octet-stream")
+        else:
+            filename = getattr(file, "name", "audio.wav")
+            if isinstance(filename, (str, os.PathLike)):
+                filename = os.path.basename(str(filename))
+            upload_file = (filename, file, "application/octet-stream")
+        files: Any = {"file": upload_file}
+
+        data: dict[str, Any] = {}
+        if language:
+            data["language"] = language
+        if features:
+            data["features"] = json.dumps(features)
+        if num_speakers is not None:
+            data["num_speakers"] = str(num_speakers)
+
+        try:
+            resp = self._http.request(
+                "POST",
+                "/v1/audio/transcribe",
+                files=files,
+                data=data,
+                timeout=600.0,
+            )
+        finally:
+            if fp is not None:
+                fp.close()
+
+        return self._parse_result(resp)
+
+    @staticmethod
+    def _parse_result(data: dict) -> TranscribeResult:
+        transcript_data = data.get("transcript", {})
+        segments = [
+            TranscriptSegment(
+                start=s["start"],
+                end=s["end"],
+                text=s["text"],
+                confidence=s.get("confidence"),
+                speaker=s.get("speaker"),
+            )
+            for s in transcript_data.get("segments", [])
+        ]
+
+        speakers = None
+        if "speakers" in data and data["speakers"]:
+            sp = data["speakers"]
+            speakers = SpeakersData(count=sp["count"], labels=sp.get("labels", []))
+
+        summary = None
+        if "summary" in data and data["summary"]:
+            sm = data["summary"]
+            summary = SummaryData(
+                text=sm.get("text"),
+                action_items=sm.get("action_items", []),
+                topics=sm.get("topics", []),
+                error=sm.get("error"),
+            )
+
+        usage = None
+        if "usage" in data and data["usage"]:
+            u = data["usage"]
+            usage = TranscribeUsage(
+                duration_minutes=u["duration_minutes"],
+                cost_cents=u.get("cost_cents", 0),
+                tier=u.get("tier", "transcribe"),
+                balance_cents=u.get("balance_cents", 0),
+            )
+
+        return TranscribeResult(
+            id=data["id"],
+            duration_seconds=data["duration_seconds"],
+            language=data["language"],
+            confidence=data["confidence"],
+            transcript=TranscriptData(
+                text=transcript_data.get("text", ""),
+                segments=segments,
+            ),
+            formatted_transcript=data.get("formatted_transcript", ""),
+            speakers=speakers,
+            summary=summary,
+            usage=usage,
+        )
 
 
 class VoicesResource:

@@ -119,6 +119,62 @@ class AccountUsage:
 
 
 @dataclass
+class TranscriptSegment:
+    """A segment of transcribed audio."""
+    start: float
+    end: float
+    text: str
+    confidence: Optional[float] = None
+    speaker: Optional[str] = None
+
+
+@dataclass
+class TranscriptData:
+    """Transcript with segments."""
+    text: str
+    segments: List[TranscriptSegment] = field(default_factory=list)
+
+
+@dataclass
+class SpeakersData:
+    """Speaker diarization results."""
+    count: int
+    labels: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SummaryData:
+    """AI-generated summary of the transcript."""
+    text: Optional[str] = None
+    action_items: List[str] = field(default_factory=list)
+    topics: List[str] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+@dataclass
+class TranscribeUsage:
+    """Usage and billing info for a transcription."""
+    duration_minutes: float
+    cost_cents: int = 0
+    tier: str = "transcribe"
+    balance_cents: int = 0
+
+
+@dataclass
+class TranscribeResult:
+    """Result of an audio transcription."""
+    id: str
+    duration_seconds: float
+    language: str
+    confidence: float
+    transcript: TranscriptData
+    formatted_transcript: str
+    speakers: Optional[SpeakersData] = None
+    summary: Optional[SummaryData] = None
+    usage: Optional[TranscribeUsage] = None
+
+
+@dataclass
 class VoiceDesign:
     """A designed voice."""
 

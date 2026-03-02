@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from ._auth import ensure_api_key, resolve_api_key
 from ._http import HTTPClient, AsyncHTTPClient
-from ._resources import AccountResource, FilesResource, GenerationsResource, VoicesResource
+from ._resources import AccountResource, AudioResource, FilesResource, GenerationsResource, VoicesResource
 from .errors import InvalidRequestError, StreamingFormatError
 from .types import GenerateResult, Job
 
@@ -43,6 +43,7 @@ class Leanvox:
         self._http: HTTPClient | None = None
 
         # Sub-resources (lazy init with HTTP client)
+        self._audio: AudioResource | None = None
         self._voices: VoicesResource | None = None
         self._files: FilesResource | None = None
         self._generations: GenerationsResource | None = None
@@ -58,6 +59,14 @@ class Leanvox:
                 max_retries=self._max_retries,
             )
         return self._http
+
+    @property
+    @property
+    def audio(self) -> AudioResource:
+        """Audio intelligence (transcription, diarization, summarization)."""
+        if self._audio is None:
+            self._audio = AudioResource(self._get_http())
+        return self._audio
 
     @property
     def voices(self) -> VoicesResource:

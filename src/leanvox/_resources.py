@@ -52,19 +52,19 @@ class AudioResource:
             TranscribeResult with transcript, speakers, and optional summary.
         """
         # Build multipart files
+        fp: Optional[BinaryIO] = None
         if isinstance(file, (str, os.PathLike)):
             filename = os.path.basename(str(file))
-            fp = open(file, "rb")
-            files = {"file": (filename, fp, "application/octet-stream")}
+            fp = open(file, "rb")  # noqa: SIM115
+            upload_file: Any = (filename, fp, "application/octet-stream")
         elif isinstance(file, bytes):
-            files = {"file": ("audio.wav", file, "application/octet-stream")}
-            fp = None
+            upload_file = ("audio.wav", file, "application/octet-stream")
         else:
             filename = getattr(file, "name", "audio.wav")
             if isinstance(filename, (str, os.PathLike)):
                 filename = os.path.basename(str(filename))
-            files = {"file": (filename, file, "application/octet-stream")}
-            fp = None
+            upload_file = (filename, file, "application/octet-stream")
+        files: Any = {"file": upload_file}
 
         data: dict[str, Any] = {}
         if language:

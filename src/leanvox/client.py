@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+import os
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from ._auth import ensure_api_key, resolve_api_key
 from ._http import HTTPClient, AsyncHTTPClient
@@ -238,8 +239,6 @@ class Leanvox:
         Returns:
             VoiceOverResult with transcription, re-voiced audio, and voice mapping.
         """
-        import os as _os
-
         # Step 1: Transcribe with diarization
         stt_features = features or ["transcript", "diarization"]
         transcription = self.audio.transcribe(

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, List, Optional
+import os
+from typing import Any, BinaryIO, Dict, Iterator, List, Optional
 
 from ._auth import ensure_api_key, resolve_api_key
 from ._http import HTTPClient, AsyncHTTPClient
 from ._resources import AccountResource, AudioResource, FilesResource, GenerationsResource, VoicesResource
 from .errors import InvalidRequestError, StreamingFormatError
-from .types import GenerateResult, Job
+from .types import GenerateResult, Job, VoiceOverResult
 
 
 _DEFAULT_BASE_URL = "https://api.leanvox.com"
@@ -203,6 +204,84 @@ class Leanvox:
             characters=data.get("characters", 0),
             cost_cents=data.get("cost_cents", 0),
             _http_client=self._get_http().raw_client,
+        )
+
+    def voiceover(
+        self,
+        file: "str | os.PathLike | BinaryIO | bytes",
+        *,
+        voice_map: Optional[Dict[str, str]] = None,
+        default_voice: str = "narrator_warm_male",
+        model: str = "pro",
+        gap_ms: int = 500,
+        features: Optional[List[str]] = None,
+        language: Optional[str] = None,
+        num_speakers: Optional[int] = None,
+    ) -> VoiceOverResult:
+        """Transcribe audio and re-voice it with different voices.
+
+        This is a convenience method that chains:
+        1. client.audio.transcribe() — get transcript with speaker diarization
+        2. client.dialogue() — re-generate with assigned voices
+
+        Args:
+            file: Audio file to transcribe and re-voice.
+            voice_map: Map speaker labels to voice IDs.
+                       e.g. {"Speaker 1": "narrator_warm_male", "Speaker 2": "af_heart"}
+                       If omitted, all speakers use default_voice.
+            default_voice: Voice ID for speakers not in voice_map.
+            model: TTS model for re-voicing ("standard", "pro", "max").
+            gap_ms: Silence gap between dialogue lines in ms.
+            features: STT features. Default: ["transcript", "diarization"].
+            language: Language hint for transcription.
+            num_speakers: Expected number of speakers hint.
+
+        Returns:
+            VoiceOverResult with transcription, re-voiced audio, and voice mapping.
+        """
+        # Step 1: Transcribe with diarization
+        stt_features = features or ["transcript", "diarization"]
+        transcription = self.audio.transcribe(
+            file,
+            language=language,
+            features=stt_features,
+            num_speakers=num_speakers,
+        )
+
+        # Step 2: Build dialogue lines from transcript segments
+        voice_map = voice_map or {}
+        lines: List[Dict[str, Any]] = []
+        for segment in transcription.transcript.segments:
+            speaker = segment.speaker or "Speaker 1"
+            voice_id = voice_map.get(speaker, default_voice)
+            lines.append({
+                "text": segment.text.strip(),
+                "voice": voice_id,
+                "language": transcription.language or "en",
+            })
+
+        # Merge consecutive lines from the same speaker
+        merged: List[Dict[str, Any]] = []
+        for line in lines:
+            if merged and merged[-1]["voice"] == line["voice"]:
+                merged[-1]["text"] += " " + line["text"]
+            else:
+                merged.append(dict(line))
+
+        if len(merged) < 2:
+            # Dialogue requires at least 2 lines — duplicate with same voice if needed
+            if merged:
+                merged.append({"text": "...", "voice": merged[0]["voice"], "language": merged[0]["language"]})
+            else:
+                raise InvalidRequestError("No transcript segments found to re-voice", code="invalid_request", status_code=400)
+
+        # Step 3: Generate dialogue
+        audio_result = self.dialogue(lines=merged, model=model, gap_ms=gap_ms)
+
+        return VoiceOverResult(
+            transcription=transcription,
+            audio=audio_result,
+            voice_map=voice_map,
         )
 
     def generate_async(

@@ -175,6 +175,23 @@ class TranscribeResult:
 
 
 @dataclass
+class VoiceOverResult:
+    """Result from voiceover() — transcribe + re-voice pipeline."""
+
+    transcription: TranscribeResult
+    audio: GenerateResult
+    voice_map: dict = field(default_factory=dict)
+
+    def download(self) -> bytes:
+        """Download re-voiced audio bytes."""
+        return self.audio.download()
+
+    def save(self, path: str | os.PathLike) -> None:
+        """Download and save re-voiced audio to a file."""
+        self.audio.save(path)
+
+
+@dataclass
 class VoiceDesign:
     """A designed voice."""
 

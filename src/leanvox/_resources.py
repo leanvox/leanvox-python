@@ -7,6 +7,7 @@ import json
 import os
 from typing import Any, BinaryIO, List, Optional, Union
 
+from .errors import LeanvoxError
 from .types import (
     AccountBalance,
     AccountUsage,
@@ -86,7 +87,35 @@ class AudioResource:
             if fp is not None:
                 fp.close()
 
+        # Async response (202) — poll until complete
+        if "job_id" in resp and "poll_url" in resp:
+            return self._poll_transcription_job(resp["job_id"])
+
         return self._parse_result(resp)
+
+    def _poll_transcription_job(self, job_id: str) -> "TranscribeResult":
+        """Poll an async transcription job until completion."""
+        import time as _time
+
+        poll_url = f"/v1/audio/transcriptions/{job_id}"
+        max_attempts = 600  # 30 minutes at 3s intervals
+
+        for _ in range(max_attempts):
+            _time.sleep(3)
+            job = self._http.request("GET", poll_url)
+
+            status = job.get("status", "")
+            if status == "completed":
+                result = job.get("result")
+                if result is None:
+                    raise LeanvoxError("Job completed but no result returned")
+                return self._parse_result(result)
+            elif status == "failed":
+                msg = job.get("error_message", "Unknown error")
+                raise LeanvoxError(f"Transcription failed: {msg}")
+            # pending/processing — keep polling
+
+        raise LeanvoxError("Transcription timed out after 30 minutes")
 
     @staticmethod
     def _parse_result(data: dict) -> TranscribeResult:

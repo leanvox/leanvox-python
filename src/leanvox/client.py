@@ -302,22 +302,31 @@ class Leanvox:
         body = _build_generate_body(text, model, voice, language, format, speed, exaggeration, voice_instructions=voice_instructions)
         if webhook_url:
             body["webhook_url"] = webhook_url
-        data = self._get_http().request("POST", "/v1/tts/generate-async", json=body)
+        data = self._get_http().request("POST", "/v1/tts/generate/async", json=body)
         return Job(
-            id=data.get("id", ""),
+            id=data.get("job_id", data.get("id", "")),
             status=data.get("status", "pending"),
             estimated_seconds=data.get("estimated_seconds", 0),
         )
 
     def get_job(self, job_id: str) -> Job:
         """Get async job status."""
-        data = self._get_http().request("GET", f"/v1/jobs/{job_id}")
-        return Job(**{k: v for k, v in data.items() if k in Job.__dataclass_fields__})
+        data = self._get_http().request("GET", f"/v1/tts/jobs/{job_id}")
+        mapped = {**data}
+        if "job_id" in mapped and "id" not in mapped:
+            mapped["id"] = mapped.pop("job_id")
+        return Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__})
 
     def list_jobs(self) -> List[Job]:
         """List all async jobs."""
-        data = self._get_http().request("GET", "/v1/jobs")
-        return [Job(**{k: v for k, v in j.items() if k in Job.__dataclass_fields__}) for j in data.get("jobs", [])]
+        data = self._get_http().request("GET", "/v1/tts/jobs")
+        jobs = []
+        for j in data.get("jobs", []):
+            mapped = {**j}
+            if "job_id" in mapped and "id" not in mapped:
+                mapped["id"] = mapped.pop("job_id")
+            jobs.append(Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__}))
+        return jobs
 
     def close(self) -> None:
         """Close the underlying HTTP client."""
@@ -432,20 +441,29 @@ class AsyncLeanvox:
         body = _build_generate_body(text, model, voice, language, format, speed, exaggeration)
         if webhook_url:
             body["webhook_url"] = webhook_url
-        data = await self._get_http().request("POST", "/v1/tts/generate-async", json=body)
+        data = await self._get_http().request("POST", "/v1/tts/generate/async", json=body)
         return Job(
-            id=data.get("id", ""),
+            id=data.get("job_id", data.get("id", "")),
             status=data.get("status", "pending"),
             estimated_seconds=data.get("estimated_seconds", 0),
         )
 
     async def get_job(self, job_id: str) -> Job:
-        data = await self._get_http().request("GET", f"/v1/jobs/{job_id}")
-        return Job(**{k: v for k, v in data.items() if k in Job.__dataclass_fields__})
+        data = await self._get_http().request("GET", f"/v1/tts/jobs/{job_id}")
+        mapped = {**data}
+        if "job_id" in mapped and "id" not in mapped:
+            mapped["id"] = mapped.pop("job_id")
+        return Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__})
 
     async def list_jobs(self) -> List[Job]:
-        data = await self._get_http().request("GET", "/v1/jobs")
-        return [Job(**{k: v for k, v in j.items() if k in Job.__dataclass_fields__}) for j in data.get("jobs", [])]
+        data = await self._get_http().request("GET", "/v1/tts/jobs")
+        jobs = []
+        for j in data.get("jobs", []):
+            mapped = {**j}
+            if "job_id" in mapped and "id" not in mapped:
+                mapped["id"] = mapped.pop("job_id")
+            jobs.append(Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__}))
+        return jobs
 
     async def close(self) -> None:
         if self._http:

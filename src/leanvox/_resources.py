@@ -16,6 +16,7 @@ from .types import (
     GenerationList,
     SpeakersData,
     SummaryData,
+    TranscriptionJob,
     TranscribeResult,
     TranscribeUsage,
     TranscriptData,
@@ -39,7 +40,9 @@ class AudioResource:
         language: Optional[str] = None,
         features: Optional[List[str]] = None,
         num_speakers: Optional[int] = None,
-    ) -> TranscribeResult:
+        force_async: bool = False,
+        wait: bool = True,
+    ) -> Union[TranscribeResult, TranscriptionJob]:
         """Transcribe an audio file.
 
         Args:
@@ -48,9 +51,12 @@ class AudioResource:
             features: List of features. Default: ["transcript", "diarization"].
                       Add "summary" for AI-generated summary.
             num_speakers: Hint for expected number of speakers.
+            force_async: Submit as a background STT job even for short files.
+            wait: Poll scheduled jobs until complete. Set False to return TranscriptionJob.
 
         Returns:
-            TranscribeResult with transcript, speakers, and optional summary.
+            TranscribeResult with transcript, speakers, and optional summary, or
+            TranscriptionJob when wait=False and the API schedules the job.
         """
         # Build multipart files
         fp: Optional[BinaryIO] = None
@@ -74,6 +80,8 @@ class AudioResource:
             data["features"] = json.dumps(features)
         if num_speakers is not None:
             data["num_speakers"] = str(num_speakers)
+        if force_async:
+            data["force_async"] = "true"
 
         try:
             resp = self._http.request(
@@ -87,35 +95,71 @@ class AudioResource:
             if fp is not None:
                 fp.close()
 
-        # Async response (202) — poll until complete
+        # Async response (202) — poll until complete unless caller opted out.
         if "job_id" in resp and "poll_url" in resp:
-            return self._poll_transcription_job(resp["job_id"])
+            job = self._parse_job(resp)
+            return self.wait_for_transcription(job.id) if wait else job
 
         return self._parse_result(resp)
 
-    def _poll_transcription_job(self, job_id: str) -> "TranscribeResult":
+    def transcribe_async(
+        self,
+        file: Union[str, os.PathLike, BinaryIO, bytes],
+        *,
+        language: Optional[str] = None,
+        features: Optional[List[str]] = None,
+        num_speakers: Optional[int] = None,
+    ) -> TranscriptionJob:
+        """Submit a background STT job and return immediately."""
+        result = self.transcribe(
+            file,
+            language=language,
+            features=features,
+            num_speakers=num_speakers,
+            force_async=True,
+            wait=False,
+        )
+        if not isinstance(result, TranscriptionJob):
+            raise LeanvoxError("Expected async transcription job response")
+        return result
+
+    def wait_for_transcription(self, job_id: str) -> TranscribeResult:
         """Poll an async transcription job until completion."""
         import time as _time
 
-        poll_url = f"/v1/audio/transcriptions/{job_id}"
+        poll_url = f"/v1/jobs/{job_id}"
         max_attempts = 600  # 30 minutes at 3s intervals
 
         for _ in range(max_attempts):
             _time.sleep(3)
             job = self._http.request("GET", poll_url)
+            parsed = self._parse_job(job)
 
-            status = job.get("status", "")
-            if status == "completed":
-                result = job.get("result")
+            if parsed.status == "completed":
+                result = parsed.result
                 if result is None:
                     raise LeanvoxError("Job completed but no result returned")
-                return self._parse_result(result)
-            elif status == "failed":
-                msg = job.get("error_message", "Unknown error")
+                return result
+            elif parsed.status == "failed":
+                msg = parsed.error or "Unknown error"
                 raise LeanvoxError(f"Transcription failed: {msg}")
             # pending/processing — keep polling
 
         raise LeanvoxError("Transcription timed out after 30 minutes")
+
+    @classmethod
+    def _parse_job(cls, data: dict) -> TranscriptionJob:
+        result = data.get("result")
+        poll_url = data.get("poll_url") or data.get("pollUrl") or ""
+        return TranscriptionJob(
+            id=data.get("job_id") or data.get("id", ""),
+            status=data.get("status", "pending"),
+            job_type=data.get("job_type", "stt"),
+            poll_url=poll_url,
+            message=data.get("message", ""),
+            result=cls._parse_result(result) if isinstance(result, dict) else None,
+            error=data.get("error_message") or data.get("error") or "",
+        )
 
     @staticmethod
     def _parse_result(data: dict) -> TranscribeResult:
@@ -150,17 +194,20 @@ class AudioResource:
         if "usage" in data and data["usage"]:
             u = data["usage"]
             usage = TranscribeUsage(
-                duration_minutes=u["duration_minutes"],
+                duration_minutes=u.get(
+                    "duration_minutes",
+                    data.get("duration_seconds", 0.0) / 60,
+                ),
                 cost_cents=u.get("cost_cents", 0),
                 tier=u.get("tier", "transcribe"),
                 balance_cents=u.get("balance_cents", 0),
             )
 
         return TranscribeResult(
-            id=data["id"],
-            duration_seconds=data["duration_seconds"],
-            language=data["language"],
-            confidence=data["confidence"],
+            id=data.get("id", ""),
+            duration_seconds=data.get("duration_seconds", 0.0),
+            language=data.get("language", ""),
+            confidence=data.get("confidence", 0.0),
             transcript=TranscriptData(
                 text=transcript_data.get("text", ""),
                 segments=segments,

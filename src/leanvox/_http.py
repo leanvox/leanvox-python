@@ -36,7 +36,6 @@ class HTTPClient:
             base_url=self._base_url,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
                 "User-Agent": "leanvox-python/0.1.0",
             },
             timeout=timeout,
@@ -151,7 +150,6 @@ class AsyncHTTPClient:
             base_url=self._base_url,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
                 "User-Agent": "leanvox-python/0.1.0",
             },
             timeout=timeout,

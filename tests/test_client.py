@@ -130,7 +130,7 @@ class TestGenerate:
         """Text exceeding auto_async_threshold should use async path."""
         long_text = "x" * 5001  # exceeds default 5000
 
-        respx.post(f"{BASE_URL}/v1/tts/generate-async").mock(
+        respx.post(f"{BASE_URL}/v1/tts/generate/async").mock(
             return_value=httpx.Response(200, json={
                 "id": "job_123", "status": "pending", "estimated_seconds": 10,
             })
@@ -249,7 +249,7 @@ class TestDialogue:
 class TestAsyncJobs:
     @respx.mock
     def test_generate_async(self, client):
-        respx.post(f"{BASE_URL}/v1/tts/generate-async").mock(
+        respx.post(f"{BASE_URL}/v1/tts/generate/async").mock(
             return_value=httpx.Response(200, json={
                 "id": "job_abc", "status": "pending",
                 "estimated_seconds": 15,
@@ -263,7 +263,7 @@ class TestAsyncJobs:
 
     @respx.mock
     def test_generate_async_with_webhook(self, client):
-        route = respx.post(f"{BASE_URL}/v1/tts/generate-async").mock(
+        route = respx.post(f"{BASE_URL}/v1/tts/generate/async").mock(
             return_value=httpx.Response(200, json={
                 "id": "job_abc", "status": "pending",
                 "estimated_seconds": 5,

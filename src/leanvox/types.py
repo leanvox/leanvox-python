@@ -67,9 +67,11 @@ class Job:
 
     id: str
     status: str  # pending, processing, completed, failed
+    job_type: str = "tts"
     estimated_seconds: float = 0
     audio_url: str = ""
     error: str = ""
+    result: Any = None
 
 
 @dataclass
@@ -172,6 +174,19 @@ class TranscribeResult:
     speakers: Optional[SpeakersData] = None
     summary: Optional[SummaryData] = None
     usage: Optional[TranscribeUsage] = None
+
+
+@dataclass
+class TranscriptionJob:
+    """An async STT job."""
+
+    id: str
+    status: str
+    job_type: str = "stt"
+    poll_url: str = ""
+    message: str = ""
+    result: Optional[TranscribeResult] = None
+    error: str = ""
 
 
 @dataclass

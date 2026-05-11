@@ -10,7 +10,7 @@ from ._auth import ensure_api_key, resolve_api_key
 from ._http import HTTPClient, AsyncHTTPClient
 from ._resources import AccountResource, AudioResource, FilesResource, GenerationsResource, VoicesResource
 from .errors import InvalidRequestError, StreamingFormatError
-from .types import GenerateResult, Job, VoiceOverResult
+from .types import GenerateResult, Job, TranscribeResult, VoiceOverResult
 
 
 _DEFAULT_BASE_URL = "https://api.leanvox.com"
@@ -61,7 +61,6 @@ class Leanvox:
             )
         return self._http
 
-    @property
     @property
     def audio(self) -> AudioResource:
         """Audio intelligence (transcription, diarization, summarization)."""
@@ -247,6 +246,8 @@ class Leanvox:
             features=stt_features,
             num_speakers=num_speakers,
         )
+        if not isinstance(transcription, TranscribeResult):
+            transcription = self.audio.wait_for_transcription(transcription.id)
 
         # Step 2: Build dialogue lines from transcript segments
         voice_map = voice_map or {}
@@ -311,22 +312,14 @@ class Leanvox:
 
     def get_job(self, job_id: str) -> Job:
         """Get async job status."""
-        data = self._get_http().request("GET", f"/v1/tts/jobs/{job_id}")
-        mapped = {**data}
-        if "job_id" in mapped and "id" not in mapped:
-            mapped["id"] = mapped.pop("job_id")
-        return Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__})
+        data = self._get_http().request("GET", f"/v1/jobs/{job_id}")
+        return _parse_job(data)
 
-    def list_jobs(self) -> List[Job]:
-        """List all async jobs."""
-        data = self._get_http().request("GET", "/v1/tts/jobs")
-        jobs = []
-        for j in data.get("jobs", []):
-            mapped = {**j}
-            if "job_id" in mapped and "id" not in mapped:
-                mapped["id"] = mapped.pop("job_id")
-            jobs.append(Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__}))
-        return jobs
+    def list_jobs(self, job_type: str | None = None) -> List[Job]:
+        """List async jobs, optionally filtered by job type."""
+        params = {"type": job_type} if job_type else None
+        data = self._get_http().request("GET", "/v1/jobs", params=params)
+        return [_parse_job(j) for j in data.get("jobs", [])]
 
     def close(self) -> None:
         """Close the underlying HTTP client."""
@@ -449,21 +442,13 @@ class AsyncLeanvox:
         )
 
     async def get_job(self, job_id: str) -> Job:
-        data = await self._get_http().request("GET", f"/v1/tts/jobs/{job_id}")
-        mapped = {**data}
-        if "job_id" in mapped and "id" not in mapped:
-            mapped["id"] = mapped.pop("job_id")
-        return Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__})
+        data = await self._get_http().request("GET", f"/v1/jobs/{job_id}")
+        return _parse_job(data)
 
-    async def list_jobs(self) -> List[Job]:
-        data = await self._get_http().request("GET", "/v1/tts/jobs")
-        jobs = []
-        for j in data.get("jobs", []):
-            mapped = {**j}
-            if "job_id" in mapped and "id" not in mapped:
-                mapped["id"] = mapped.pop("job_id")
-            jobs.append(Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__}))
-        return jobs
+    async def list_jobs(self, job_type: str | None = None) -> List[Job]:
+        params = {"type": job_type} if job_type else None
+        data = await self._get_http().request("GET", "/v1/jobs", params=params)
+        return [_parse_job(j) for j in data.get("jobs", [])]
 
     async def close(self) -> None:
         if self._http:
@@ -477,6 +462,14 @@ class AsyncLeanvox:
 
 
 # --- Validation helpers ---
+
+def _parse_job(data: dict) -> Job:
+    mapped = {**data}
+    if "job_id" in mapped and "id" not in mapped:
+        mapped["id"] = mapped.pop("job_id")
+    if "error_message" in mapped and "error" not in mapped:
+        mapped["error"] = mapped["error_message"]
+    return Job(**{k: v for k, v in mapped.items() if k in Job.__dataclass_fields__})
 
 def _validate_generate_params(
     text: str, model: str, speed: float, exaggeration: float,

@@ -130,7 +130,7 @@ class TestAsyncJobs:
     @respx.mock
     @pytest.mark.asyncio
     async def test_generate_async(self, client):
-        respx.post(f"{BASE_URL}/v1/tts/generate-async").mock(
+        respx.post(f"{BASE_URL}/v1/tts/generate/async").mock(
             return_value=httpx.Response(200, json={
                 "id": "job_abc", "status": "pending",
                 "estimated_seconds": 10,
@@ -144,7 +144,7 @@ class TestAsyncJobs:
     @respx.mock
     @pytest.mark.asyncio
     async def test_generate_async_with_webhook(self, client):
-        route = respx.post(f"{BASE_URL}/v1/tts/generate-async").mock(
+        route = respx.post(f"{BASE_URL}/v1/tts/generate/async").mock(
             return_value=httpx.Response(200, json={
                 "id": "job_abc", "status": "pending",
                 "estimated_seconds": 5,

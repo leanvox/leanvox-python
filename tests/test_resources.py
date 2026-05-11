@@ -17,6 +17,8 @@ from leanvox import (
     Voice,
     VoiceDesign,
     VoiceList,
+    TranscriptionJob,
+    TranscribeResult,
 )
 
 BASE_URL = "https://api.leanvox.com"
@@ -214,6 +216,59 @@ class TestVoicesDelete:
         )
         result = client.voices.unlock("voice_abc")
         assert result["status"] == "active"
+
+
+class TestAudioResource:
+    @respx.mock
+    def test_transcribe_async_returns_job(self, client):
+        route = respx.post(f"{BASE_URL}/v1/audio/transcribe").mock(
+            return_value=httpx.Response(202, json={
+                "job_id": "job_stt_123",
+                "job_type": "stt",
+                "status": "pending",
+                "poll_url": "/v1/jobs/job_stt_123",
+                "message": "Track progress with poll_url.",
+            })
+        )
+
+        result = client.audio.transcribe(
+            b"fake audio",
+            force_async=True,
+            wait=False,
+        )
+
+        assert isinstance(result, TranscriptionJob)
+        assert result.id == "job_stt_123"
+        assert result.job_type == "stt"
+        assert result.poll_url == "/v1/jobs/job_stt_123"
+        body = route.calls.last.request.content.decode()
+        assert 'name="force_async"' in body
+        assert "true" in body
+
+    @respx.mock
+    def test_wait_for_transcription_uses_canonical_jobs_endpoint(self, client, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda _: None)
+        respx.get(f"{BASE_URL}/v1/jobs/job_stt_123").mock(
+            return_value=httpx.Response(200, json={
+                "id": "job_stt_123",
+                "job_type": "stt",
+                "status": "completed",
+                "result": {
+                    "id": "tr_123",
+                    "duration_seconds": 12.0,
+                    "language": "en",
+                    "confidence": 0.9,
+                    "formatted_transcript": "Speaker 1: Hello",
+                    "transcript": {"text": "Hello", "segments": []},
+                },
+            })
+        )
+
+        result = client.audio.wait_for_transcription("job_stt_123")
+
+        assert isinstance(result, TranscribeResult)
+        assert result.id == "tr_123"
+        assert result.formatted_transcript == "Speaker 1: Hello"
 
 
 class TestFilesResource:
